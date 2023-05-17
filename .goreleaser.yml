@@ -1,0 +1,15 @@
+builds:
+  - binary: acme-ddns
+    main: ./cmd/acme-ddns
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+archives:
+  - format: zip
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+release:
+  github:
+    owner: kazeburo
+    name: acme-ddns

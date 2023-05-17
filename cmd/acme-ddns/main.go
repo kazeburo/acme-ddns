@@ -26,6 +26,7 @@ var version string
 
 type Opt struct {
 	Version    bool          `short:"v" long:"version" description:"Show version"`
+	Listen     string        `long:"listen" default:":8053" description:"address for listen"`
 	TTL        time.Duration `long:"ttl" default:"1h" description:"ttl for TXT"`
 	Expiration time.Duration `long:"expiration" default:"3h" description:"expiration time for cache TXT record"`
 	Zone       string        `long:"domain" required:"true" description:"zone name for dynamic dns"`
@@ -262,7 +263,7 @@ Compiler: %s %s
 	defer stop()
 
 	server := &dns.Server{
-		Addr:          ":8053",
+		Addr:          opt.Listen,
 		Net:           "udp",
 		MsgAcceptFunc: acceptUpdateQueries,
 	}
