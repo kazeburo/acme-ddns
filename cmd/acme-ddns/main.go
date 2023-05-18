@@ -111,11 +111,13 @@ func (opt *Opt) handleQuery(m *dns.Msg, r *dns.Msg) {
 
 func (opt *Opt) handleUpdates(w dns.ResponseWriter, m *dns.Msg, r *dns.Msg) {
 	if opt.tsigSecret != nil && len(opt.tsigSecret) > 0 {
-		if m.IsTsig() != nil {
+		if r.IsTsig() == nil {
+			log.Printf("tsig required")
 			m.Rcode = dns.RcodeRefused
 			return
 		}
 		if err := w.TsigStatus(); err != nil {
+			log.Printf("tsig status: %v", err)
 			m.Rcode = dns.RcodeRefused
 			return
 		}
