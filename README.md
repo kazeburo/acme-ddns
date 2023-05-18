@@ -134,7 +134,7 @@ Usage:
 Application Options:
   -v, --version     Show version
       --listen=     address for listen (default: :8053)
-      --ttl=        ttl for TXT (default: 1h)
+      --ttl=        ttl for TXT (default: 5m)
       --expiration= expiration time for cache TXT record (default: 3h)
       --zone=     zone name for dynamic dns
       --keyname=    Name of TSIG key
