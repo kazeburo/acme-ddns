@@ -42,31 +42,10 @@ type Opt struct {
 func (opt *Opt) handleQuery(m *dns.Msg, r *dns.Msg) {
 	// quetionは1つ
 	for _, q := range r.Question {
-		if q.Qtype == dns.TypeA && (q.Name == opt.NSName || q.Name == opt.Zone) {
-			a := new(dns.A)
-			a.Hdr = dns.RR_Header{
-				Name:   q.Name,
-				Rrtype: dns.TypeA,
-				Class:  dns.ClassINET,
-				Ttl:    uint32(opt.TTL.Seconds()),
-			}
-			a.A = opt.nsAddr
-			m.Answer = append(m.Answer, a)
-			return
-		}
-		if q.Qtype == dns.TypeNS && q.Name == opt.Zone {
-			a := new(dns.NS)
-			a.Hdr = dns.RR_Header{
-				Name:   q.Name,
-				Rrtype: dns.TypeNS,
-				Class:  dns.ClassINET,
-				Ttl:    uint32(opt.TTL.Seconds()),
-			}
-			a.Ns = opt.NSName
-			m.Answer = append(m.Answer, a)
-			return
-		}
-		if q.Qtype != dns.TypeTXT {
+		log.Printf("Query name:%s type:%s", q.Name, dns.TypeToString[q.Qtype])
+		qName := strings.ToLower(q.Name)
+
+		if !strings.HasSuffix(qName, opt.Zone) {
 			m.Rcode = dns.RcodeRefused
 			return
 		}
@@ -85,11 +64,46 @@ func (opt *Opt) handleQuery(m *dns.Msg, r *dns.Msg) {
 		soa.Retry = 900
 		soa.Expire = 2419200
 		soa.Minttl = 30
-		m.Ns = append(m.Ns, soa)
 
-		val, ok := opt.cache.Get(q.Name)
+		if q.Qtype == dns.TypeSOA {
+			m.Answer = append(m.Answer, soa)
+			return
+		}
+		if q.Qtype == dns.TypeNS {
+			a := new(dns.NS)
+			a.Hdr = dns.RR_Header{
+				Name:   qName,
+				Rrtype: dns.TypeNS,
+				Class:  dns.ClassINET,
+				Ttl:    uint32(opt.TTL.Seconds()),
+			}
+			a.Ns = opt.NSName
+			m.Answer = append(m.Answer, a)
+			return
+		}
+		if q.Qtype == dns.TypeA && (qName == opt.NSName || qName == opt.Zone) {
+			a := new(dns.A)
+			a.Hdr = dns.RR_Header{
+				Name:   qName,
+				Rrtype: dns.TypeA,
+				Class:  dns.ClassINET,
+				Ttl:    uint32(opt.TTL.Seconds()),
+			}
+			a.A = opt.nsAddr
+			m.Answer = append(m.Answer, a)
+			return
+		}
+
+		if q.Qtype != dns.TypeTXT {
+			m.Rcode = dns.RcodeNameError
+			m.Ns = append(m.Ns, soa)
+			return
+		}
+
+		val, ok := opt.cache.Get(qName)
 		if !ok {
 			m.Rcode = dns.RcodeNameError
+			m.Ns = append(m.Ns, soa)
 			return
 		}
 		txt, ok := val.([]string)
@@ -99,7 +113,7 @@ func (opt *Opt) handleQuery(m *dns.Msg, r *dns.Msg) {
 		}
 		a := new(dns.TXT)
 		a.Hdr = dns.RR_Header{
-			Name:   q.Name,
+			Name:   qName,
 			Rrtype: dns.TypeTXT,
 			Class:  dns.ClassINET,
 			Ttl:    uint32(opt.TTL.Seconds()),
@@ -126,27 +140,34 @@ func (opt *Opt) handleUpdates(w dns.ResponseWriter, m *dns.Msg, r *dns.Msg) {
 	for _, q := range r.Question {
 		// nsは複数個ある
 		for _, rr := range r.Ns {
-			opt.updateRecord(rr, &q)
+			rcode, err := opt.updateRecord(rr, &q)
+			if err != nil {
+				log.Printf("failed to update record :%v", err)
+				m.Rcode = rcode
+			}
 		}
 	}
 }
 
-func (opt *Opt) updateRecord(r dns.RR, q *dns.Question) error {
+func (opt *Opt) updateRecord(r dns.RR, q *dns.Question) (int, error) {
 	txt, ok := r.(*dns.TXT)
 	if !ok {
-		return fmt.Errorf("not txt")
+		return dns.RcodeRefused, fmt.Errorf("not txt")
+	}
+	log.Printf("update request to %s class:%s", r.Header().Name, dns.ClassToString[r.Header().Class])
+	qName := strings.ToLower(r.Header().Name)
+	if !strings.HasSuffix(qName, opt.Zone) {
+		return dns.RcodeRefused, fmt.Errorf("invalid zone")
 	}
 	if r.Header().Class == dns.ClassINET {
-		// log.Printf("addRecord key:%s value:%v", txt.Header().Name, txt.Txt)
-		if err := opt.cache.Add(r.Header().Name, txt.Txt, cache.DefaultExpiration); err != nil {
-			log.Printf("failed to addRecord key:%s value:%v error:%v", txt.Header().Name, txt.Txt, err)
+		if err := opt.cache.Add(qName, txt.Txt, cache.DefaultExpiration); err != nil {
+			return dns.RcodeServerFailure, fmt.Errorf("failed to addRecord key:%s value:%v error:%v", qName, txt.Txt, err)
 		}
 	} else {
 		// remove
-		// log.Printf("deleteRecord key:%s", txt.Header().Name)
-		opt.cache.Delete(r.Header().Name)
+		opt.cache.Delete(strings.ToLower(r.Header().Name))
 	}
-	return nil
+	return dns.RcodeSuccess, nil
 }
 
 func (opt *Opt) handleRequest(w dns.ResponseWriter, r *dns.Msg) {
@@ -260,7 +281,7 @@ Compiler: %s %s
 	}
 
 	opt.cache = cache.New(opt.Expiration, 1*time.Minute)
-	dns.HandleFunc(opt.Zone, opt.handleRequest)
+	dns.HandleFunc(".", opt.handleRequest)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
