@@ -29,10 +29,9 @@ type Opt struct {
 	Listen     string        `long:"listen" default:":8053" description:"address for listen"`
 	TTL        time.Duration `long:"ttl" default:"1h" description:"ttl for TXT"`
 	Expiration time.Duration `long:"expiration" default:"3h" description:"expiration time for cache TXT record"`
-	Zone       string        `long:"domain" required:"true" description:"zone name for dynamic dns"`
+	Zone       string        `long:"zone" required:"true" description:"zone name for dynamic dns"`
 	KeyName    []string      `long:"keyname" description:"Name of TSIG key"`
 	Secret     []string      `long:"secret" description:"secret of TSIG key"`
-	NSName     string        `long:"ns-name" default:"ns" description:"NS record name of the zone"`
 	NSAddr     string        `long:"ns-addr" default:"127.0.0.1" description:"NS record value of the zone"`
 	cache      *cache.Cache
 	tsigSecret map[string]string
@@ -42,7 +41,7 @@ type Opt struct {
 func (opt *Opt) handleQuery(m *dns.Msg, r *dns.Msg) {
 	// quetionは1つ
 	for _, q := range r.Question {
-		if q.Qtype == dns.TypeA && q.Name == opt.NSName {
+		if q.Qtype == dns.TypeA && q.Name == opt.Zone {
 			a := new(dns.A)
 			a.Hdr = dns.RR_Header{
 				Name:   q.Name,
@@ -62,7 +61,7 @@ func (opt *Opt) handleQuery(m *dns.Msg, r *dns.Msg) {
 				Class:  dns.ClassINET,
 				Ttl:    uint32(opt.TTL.Seconds()),
 			}
-			a.Ns = opt.NSName
+			a.Ns = opt.Zone
 			m.Answer = append(m.Answer, a)
 			return
 		}
@@ -78,8 +77,8 @@ func (opt *Opt) handleQuery(m *dns.Msg, r *dns.Msg) {
 			Class:  dns.ClassINET,
 			Ttl:    uint32(opt.TTL.Seconds()),
 		}
-		soa.Ns = opt.NSName
-		soa.Mbox = opt.NSName
+		soa.Ns = opt.Zone
+		soa.Mbox = opt.Zone
 		soa.Serial = 1
 		soa.Refresh = 3600
 		soa.Retry = 900
@@ -244,12 +243,6 @@ Compiler: %s %s
 		os.Exit(StatusCodeWARNING)
 	}
 
-	if !strings.HasPrefix(opt.NSName, ".") {
-		opt.NSName = opt.NSName + "."
-	}
-	if !strings.HasPrefix(opt.NSName, "."+opt.Zone) {
-		opt.NSName = opt.NSName + opt.Zone
-	}
 	opt.nsAddr = net.ParseIP(opt.NSAddr)
 	if opt.nsAddr == nil {
 		log.Printf("failed to parse ns-addr")

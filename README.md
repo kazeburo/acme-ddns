@@ -19,7 +19,7 @@ algorithm should be hmac-sha256.
 ### run dns server
 
 ```
-% ./acme-ddns --domain example.com --keyname mykey --secret '8Ejc06Zhaszv50eMxm/5pce9KnjBlxI/rsokMMIhx+w=' --listen ':8053'
+% ./acme-ddns --zone example.com --keyname mykey --secret '8Ejc06Zhaszv50eMxm/5pce9KnjBlxI/rsokMMIhx+w=' --listen ':8053'
 ```
 
 ### test with dig
@@ -136,10 +136,9 @@ Application Options:
       --listen=     address for listen (default: :8053)
       --ttl=        ttl for TXT (default: 1h)
       --expiration= expiration time for cache TXT record (default: 3h)
-      --domain=     zone name for dynamic dns
+      --zone=     zone name for dynamic dns
       --keyname=    Name of TSIG key
       --secret=     secret of TSIG key
-      --ns-name=    NS record name of the zone (default: ns)
       --ns-addr=    NS record value of the zone (default: 127.0.0.1)
 
 Help Options:
