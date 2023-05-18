@@ -139,6 +139,7 @@ Application Options:
       --zone=     zone name for dynamic dns
       --keyname=    Name of TSIG key
       --secret=     secret of TSIG key
+      --ns-name=    NS record name of the zone (default: ns)
       --ns-addr=    NS record value of the zone (default: 127.0.0.1)
 
 Help Options:

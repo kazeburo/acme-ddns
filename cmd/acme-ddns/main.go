@@ -32,6 +32,7 @@ type Opt struct {
 	Zone       string        `long:"zone" required:"true" description:"zone name for dynamic dns"`
 	KeyName    []string      `long:"keyname" description:"Name of TSIG key"`
 	Secret     []string      `long:"secret" description:"secret of TSIG key"`
+	NSName     string        `long:"ns-name" default:"ns" description:"NS record name of the zone"`
 	NSAddr     string        `long:"ns-addr" default:"127.0.0.1" description:"NS record value of the zone"`
 	cache      *cache.Cache
 	tsigSecret map[string]string
@@ -41,7 +42,7 @@ type Opt struct {
 func (opt *Opt) handleQuery(m *dns.Msg, r *dns.Msg) {
 	// quetionは1つ
 	for _, q := range r.Question {
-		if q.Qtype == dns.TypeA && q.Name == opt.Zone {
+		if q.Qtype == dns.TypeA && (q.Name == opt.NSName || q.Name == opt.Zone) {
 			a := new(dns.A)
 			a.Hdr = dns.RR_Header{
 				Name:   q.Name,
@@ -61,7 +62,7 @@ func (opt *Opt) handleQuery(m *dns.Msg, r *dns.Msg) {
 				Class:  dns.ClassINET,
 				Ttl:    uint32(opt.TTL.Seconds()),
 			}
-			a.Ns = opt.Zone
+			a.Ns = opt.NSName
 			m.Answer = append(m.Answer, a)
 			return
 		}
@@ -77,8 +78,8 @@ func (opt *Opt) handleQuery(m *dns.Msg, r *dns.Msg) {
 			Class:  dns.ClassINET,
 			Ttl:    uint32(opt.TTL.Seconds()),
 		}
-		soa.Ns = opt.Zone
-		soa.Mbox = opt.Zone
+		soa.Ns = opt.NSName
+		soa.Mbox = opt.NSName
 		soa.Serial = 1
 		soa.Refresh = 3600
 		soa.Retry = 900
@@ -241,6 +242,13 @@ Compiler: %s %s
 	if len(opt.KeyName) != len(opt.Secret) {
 		log.Printf("length of keyname and secret not match")
 		os.Exit(StatusCodeWARNING)
+	}
+
+	if !strings.HasPrefix(opt.NSName, ".") {
+		opt.NSName = opt.NSName + "."
+	}
+	if !strings.HasPrefix(opt.NSName, "."+opt.Zone) {
+		opt.NSName = opt.NSName + opt.Zone
 	}
 
 	opt.nsAddr = net.ParseIP(opt.NSAddr)
