@@ -9,11 +9,13 @@ import (
 	"os/signal"
 	"runtime"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/jessevdk/go-flags"
 	"github.com/miekg/dns"
 	"github.com/patrickmn/go-cache"
+	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -283,12 +285,17 @@ Compiler: %s %s
 	opt.cache = cache.New(opt.Expiration, 1*time.Minute)
 	dns.HandleFunc(".", opt.handleRequest)
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	server := &dns.Server{
+	udpServer := &dns.Server{
 		Addr:          opt.Listen,
 		Net:           "udp",
+		MsgAcceptFunc: acceptUpdateQueries,
+	}
+	tcpServer := &dns.Server{
+		Addr:          opt.Listen,
+		Net:           "tcp",
 		MsgAcceptFunc: acceptUpdateQueries,
 	}
 	opt.tsigSecret = map[string]string{}
@@ -300,18 +307,31 @@ Compiler: %s %s
 		opt.tsigSecret[k] = opt.Secret[i]
 	}
 	if len(opt.tsigSecret) > 0 {
-		server.TsigSecret = opt.tsigSecret
+		udpServer.TsigSecret = opt.tsigSecret
+		tcpServer.TsigSecret = opt.tsigSecret
 	}
 	go func() {
 		<-ctx.Done()
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		server.ShutdownContext(ctx)
+		udpServer.ShutdownContext(ctx)
 	}()
 
-	err = server.ListenAndServe()
-	if err != nil {
+	go func() {
+		<-ctx.Done()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		tcpServer.ShutdownContext(ctx)
+	}()
+
+	eg, ctx := errgroup.WithContext(ctx)
+	eg.Go(func() error {
+		return udpServer.ListenAndServe()
+	})
+	eg.Go(func() error {
+		return tcpServer.ListenAndServe()
+	})
+	if err := eg.Wait(); err != nil {
 		log.Printf("%+v", err)
 	}
-
 }
