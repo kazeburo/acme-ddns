@@ -285,19 +285,6 @@ Compiler: %s %s
 	opt.cache = cache.New(opt.Expiration, 1*time.Minute)
 	dns.HandleFunc(".", opt.handleRequest)
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
-	udpServer := &dns.Server{
-		Addr:          opt.Listen,
-		Net:           "udp",
-		MsgAcceptFunc: acceptUpdateQueries,
-	}
-	tcpServer := &dns.Server{
-		Addr:          opt.Listen,
-		Net:           "tcp",
-		MsgAcceptFunc: acceptUpdateQueries,
-	}
 	opt.tsigSecret = map[string]string{}
 	for i := range opt.KeyName {
 		k := opt.KeyName[i]
@@ -306,31 +293,33 @@ Compiler: %s %s
 		}
 		opt.tsigSecret[k] = opt.Secret[i]
 	}
-	if len(opt.tsigSecret) > 0 {
-		udpServer.TsigSecret = opt.tsigSecret
-		tcpServer.TsigSecret = opt.tsigSecret
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	eg := errgroup.Group{}
+	for _, net := range []string{"udp", "tcp"} {
+		server := &dns.Server{
+			Addr:          opt.Listen,
+			Net:           net,
+			MsgAcceptFunc: acceptUpdateQueries,
+		}
+
+		if len(opt.tsigSecret) > 0 {
+			server.TsigSecret = opt.tsigSecret
+		}
+
+		go func() {
+			<-ctx.Done()
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			server.ShutdownContext(ctx)
+		}()
+
+		eg.Go(func() error {
+			return server.ListenAndServe()
+		})
 	}
-	go func() {
-		<-ctx.Done()
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		udpServer.ShutdownContext(ctx)
-	}()
-
-	go func() {
-		<-ctx.Done()
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		tcpServer.ShutdownContext(ctx)
-	}()
-
-	eg, ctx := errgroup.WithContext(ctx)
-	eg.Go(func() error {
-		return udpServer.ListenAndServe()
-	})
-	eg.Go(func() error {
-		return tcpServer.ListenAndServe()
-	})
 	if err := eg.Wait(); err != nil {
 		log.Printf("%+v", err)
 	}
