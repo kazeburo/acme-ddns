@@ -41,112 +41,113 @@ type Opt struct {
 	nsAddr     net.IP
 }
 
-func (opt *Opt) handleQuery(m *dns.Msg, r *dns.Msg) {
-	// quetionは1つ
-	for _, q := range r.Question {
-		log.Printf("Query name:%s type:%s", q.Name, dns.TypeToString[q.Qtype])
-		qName := strings.ToLower(q.Name)
-
-		if !strings.HasSuffix(qName, opt.Zone) {
-			m.Rcode = dns.RcodeRefused
-			return
-		}
-
-		soa := new(dns.SOA)
-		soa.Hdr = dns.RR_Header{
-			Name:   q.Name,
-			Rrtype: dns.TypeSOA,
-			Class:  dns.ClassINET,
-			Ttl:    uint32(opt.TTL.Seconds()),
-		}
-		soa.Ns = opt.NSName
-		soa.Mbox = opt.NSName
-		soa.Serial = 1
-		soa.Refresh = 3600
-		soa.Retry = 900
-		soa.Expire = 2419200
-		soa.Minttl = 30
-
-		if q.Qtype == dns.TypeSOA {
-			m.Answer = append(m.Answer, soa)
-			return
-		}
-		if q.Qtype == dns.TypeNS {
-			a := new(dns.NS)
-			a.Hdr = dns.RR_Header{
-				Name:   qName,
-				Rrtype: dns.TypeNS,
-				Class:  dns.ClassINET,
-				Ttl:    uint32(opt.TTL.Seconds()),
-			}
-			a.Ns = opt.NSName
-			m.Answer = append(m.Answer, a)
-			return
-		}
-		if q.Qtype == dns.TypeA && (qName == opt.NSName || qName == opt.Zone) {
-			a := new(dns.A)
-			a.Hdr = dns.RR_Header{
-				Name:   qName,
-				Rrtype: dns.TypeA,
-				Class:  dns.ClassINET,
-				Ttl:    uint32(opt.TTL.Seconds()),
-			}
-			a.A = opt.nsAddr
-			m.Answer = append(m.Answer, a)
-			return
-		}
-
-		if q.Qtype != dns.TypeTXT {
-			m.Rcode = dns.RcodeNameError
-			m.Ns = append(m.Ns, soa)
-			return
-		}
-
-		val, ok := opt.cache.Get(qName)
-		if !ok {
-			m.Rcode = dns.RcodeNameError
-			m.Ns = append(m.Ns, soa)
-			return
-		}
-		txt, ok := val.([]string)
-		if !ok {
-			m.Rcode = dns.RcodeServerFailure
-			return
-		}
-		a := new(dns.TXT)
-		a.Hdr = dns.RR_Header{
-			Name:   qName,
-			Rrtype: dns.TypeTXT,
-			Class:  dns.ClassINET,
-			Ttl:    uint32(opt.TTL.Seconds()),
-		}
-		a.Txt = txt
-		m.Answer = append(m.Answer, a)
-	}
+func (opt *Opt) tsgiEnabled() bool {
+	return opt.tsigSecret != nil && len(opt.tsigSecret) > 0
 }
 
-func (opt *Opt) handleUpdates(w dns.ResponseWriter, m *dns.Msg, r *dns.Msg) {
-	if opt.tsigSecret != nil && len(opt.tsigSecret) > 0 {
-		if r.IsTsig() == nil {
-			log.Printf("tsig required")
-			m.Rcode = dns.RcodeRefused
-			return
-		}
-		if err := w.TsigStatus(); err != nil {
-			log.Printf("tsig status: %v", err)
-			m.Rcode = dns.RcodeRefused
-			return
-		}
+func (opt *Opt) handleQuery(m *dns.Msg, r *dns.Msg) {
+	if len(r.Question) != 1 {
+		m.Rcode = dns.RcodeRefused
+		return
 	}
-	// quetionは1つ
-	for _, q := range r.Question {
-		// nsは複数個ある
-		for _, rr := range r.Ns {
-			rcode, err := opt.updateRecord(rr, &q)
-			if err != nil {
-				log.Printf("failed to update record :%v", err)
-				m.Rcode = rcode
-			}
+
+	q := r.Question[0]
+	log.Printf("Query name:%s type:%s", q.Name, dns.TypeToString[q.Qtype])
+	qName := strings.ToLower(q.Name)
+
+	if !strings.HasSuffix(qName, opt.Zone) {
+		m.Rcode = dns.RcodeRefused
+		return
+	}
+
+	soa := new(dns.SOA)
+	soa.Hdr = dns.RR_Header{
+		Name:   q.Name,
+		Rrtype: dns.TypeSOA,
+		Class:  dns.ClassINET,
+		Ttl:    uint32(opt.TTL.Seconds()),
+	}
+	soa.Ns = opt.NSName
+	soa.Mbox = opt.NSName
+	soa.Serial = 1
+	soa.Refresh = 3600
+	soa.Retry = 900
+	soa.Expire = 2419200
+	soa.Minttl = 30
+
+	if q.Qtype == dns.TypeSOA {
+		m.Answer = append(m.Answer, soa)
+		return
+	}
+
+	if q.Qtype == dns.TypeNS {
+		a := new(dns.NS)
+		a.Hdr = dns.RR_Header{
+			Name:   qName,
+			Rrtype: dns.TypeNS,
+			Class:  dns.ClassINET,
+			Ttl:    uint32(opt.TTL.Seconds()),
+		}
+		a.Ns = opt.NSName
+		m.Answer = append(m.Answer, a)
+		return
+	}
+
+	if q.Qtype == dns.TypeA && (qName == opt.NSName || qName == opt.Zone) {
+		a := new(dns.A)
+		a.Hdr = dns.RR_Header{
+			Name:   qName,
+			Rrtype: dns.TypeA,
+			Class:  dns.ClassINET,
+			Ttl:    uint32(opt.TTL.Seconds()),
+		}
+		a.A = opt.nsAddr
+		m.Answer = append(m.Answer, a)
+		return
+	}
+
+	if q.Qtype != dns.TypeTXT {
+		m.Rcode = dns.RcodeNameError
+		m.Ns = append(m.Ns, soa)
+		return
+	}
+
+	val, ok := opt.cache.Get(qName)
+	if !ok {
+		m.Rcode = dns.RcodeNameError
+		m.Ns = append(m.Ns, soa)
+		return
+	}
+	txt, ok := val.([]string)
+	if !ok {
+		m.Rcode = dns.RcodeServerFailure
+		return
+	}
+
+	a := new(dns.TXT)
+	a.Hdr = dns.RR_Header{
+		Name:   qName,
+		Rrtype: dns.TypeTXT,
+		Class:  dns.ClassINET,
+		Ttl:    uint32(opt.TTL.Seconds()),
+	}
+	a.Txt = txt
+	m.Answer = append(m.Answer, a)
+}
+
+func (opt *Opt) handleUpdates(m *dns.Msg, r *dns.Msg) {
+	if len(r.Question) != 1 {
+		m.Rcode = dns.RcodeRefused
+		return
+	}
+
+	q := r.Question[0]
+	// nsは複数個ある
+	for _, rr := range r.Ns {
+		rcode, err := opt.updateRecord(rr, &q)
+		if err != nil {
+			log.Printf("failed to update record :%v", err)
+			m.Rcode = rcode
 		}
 	}
 }
@@ -154,57 +155,72 @@ func (opt *Opt) handleUpdates(w dns.ResponseWriter, m *dns.Msg, r *dns.Msg) {
 func (opt *Opt) updateRecord(r dns.RR, q *dns.Question) (int, error) {
 	txt, ok := r.(*dns.TXT)
 	if !ok {
-		return dns.RcodeRefused, fmt.Errorf("not txt")
+		return dns.RcodeRefused, fmt.Errorf("not txt rr")
 	}
+
 	log.Printf("update request to %s class:%s", r.Header().Name, dns.ClassToString[r.Header().Class])
+
 	qName := strings.ToLower(r.Header().Name)
+
 	if !strings.HasSuffix(qName, opt.Zone) {
 		return dns.RcodeRefused, fmt.Errorf("invalid zone")
 	}
+
 	if r.Header().Class == dns.ClassINET {
+		// add new
 		if err := opt.cache.Add(qName, txt.Txt, cache.DefaultExpiration); err != nil {
 			return dns.RcodeServerFailure, fmt.Errorf("failed to addRecord key:%s value:%v error:%v", qName, txt.Txt, err)
 		}
 	} else {
 		// remove
-		opt.cache.Delete(strings.ToLower(r.Header().Name))
+		opt.cache.Delete(qName)
 	}
+
 	return dns.RcodeSuccess, nil
 }
 
 func (opt *Opt) handleRequest(w dns.ResponseWriter, r *dns.Msg) {
 	m := new(dns.Msg)
 	m.SetReply(r)
-	m.Compress = false
+	m.Compress = true
 	m.Authoritative = true
 
 	switch r.Opcode {
 	case dns.OpcodeQuery:
-		m.Authoritative = true
 		opt.handleQuery(m, r)
 	case dns.OpcodeUpdate:
-		opt.handleUpdates(w, m, r)
+		if opt.tsgiEnabled() {
+			if r.IsTsig() == nil {
+				log.Printf("tsig required")
+				m.Rcode = dns.RcodeRefused
+			}
+			if err := w.TsigStatus(); err != nil {
+				log.Printf("tsig status: %v", err)
+				m.Rcode = dns.RcodeRefused
+			}
+		}
+		if m.Rcode != dns.RcodeRefused {
+			opt.handleUpdates(m, r)
+		}
 	}
 
-	if opt.tsigSecret != nil && len(opt.tsigSecret) > 0 {
-		if r.IsTsig() != nil {
-			if err := w.TsigStatus(); err != nil {
-				log.Printf("isTsigStatus: %+v", err)
-			} else {
-				m.SetTsig(
-					r.Extra[len(r.Extra)-1].(*dns.TSIG).Hdr.Name,
-					dns.HmacSHA256,
-					300,
-					time.Now().Unix(),
-				)
-			}
+	if opt.tsgiEnabled() && r.IsTsig() != nil {
+		if err := w.TsigStatus(); err != nil {
+			log.Printf("isTsigStatus: %+v", err)
+		} else {
+			m.SetTsig(
+				r.Extra[len(r.Extra)-1].(*dns.TSIG).Hdr.Name,
+				dns.HmacSHA256,
+				300,
+				time.Now().Unix(),
+			)
 		}
 	}
 
 	w.WriteMsg(m)
 }
 
-func acceptUpdateQueries(dh dns.Header) dns.MsgAcceptAction {
+func (opt *Opt) updateMsgAcceptFunc(dh dns.Header) dns.MsgAcceptAction {
 	queryReplyBit := uint16(1 << 15) // nolint:gomnd
 
 	if isReply := dh.Bits&queryReplyBit != 0; isReply {
@@ -282,9 +298,6 @@ Compiler: %s %s
 		os.Exit(StatusCodeWARNING)
 	}
 
-	opt.cache = cache.New(opt.Expiration, 1*time.Minute)
-	dns.HandleFunc(".", opt.handleRequest)
-
 	opt.tsigSecret = map[string]string{}
 	for i := range opt.KeyName {
 		k := opt.KeyName[i]
@@ -294,6 +307,9 @@ Compiler: %s %s
 		opt.tsigSecret[k] = opt.Secret[i]
 	}
 
+	opt.cache = cache.New(opt.Expiration, 1*time.Minute)
+	dns.HandleFunc(".", opt.handleRequest)
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -302,7 +318,7 @@ Compiler: %s %s
 		server := &dns.Server{
 			Addr:          opt.Listen,
 			Net:           net,
-			MsgAcceptFunc: acceptUpdateQueries,
+			MsgAcceptFunc: opt.updateMsgAcceptFunc,
 		}
 
 		if len(opt.tsigSecret) > 0 {
