@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"net"
 	"os"
 	"os/signal"
@@ -15,6 +14,7 @@ import (
 	"github.com/jessevdk/go-flags"
 	"github.com/miekg/dns"
 	"github.com/patrickmn/go-cache"
+	"golang.org/x/exp/slog"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -39,21 +39,28 @@ type Opt struct {
 	cache      *cache.Cache
 	tsigSecret map[string]string
 	nsAddr     net.IP
+	logger     *slog.Logger
 }
 
 func (opt *Opt) tsgiEnabled() bool {
 	return opt.tsigSecret != nil && len(opt.tsigSecret) > 0
 }
 
-func (opt *Opt) handleQuery(m *dns.Msg, r *dns.Msg) {
+func (opt *Opt) handleQuery(m *dns.Msg, r *dns.Msg, logger *slog.Logger) {
 	if len(r.Question) != 1 {
 		m.Rcode = dns.RcodeRefused
 		return
 	}
 
 	q := r.Question[0]
-	log.Printf("Query name:%s type:%s", q.Name, dns.TypeToString[q.Qtype])
 	qName := strings.ToLower(q.Name)
+
+	logger.Info(
+		"handleQuery",
+		slog.String("qname", q.Name),
+		slog.String("class", dns.ClassToString[q.Qclass]),
+		slog.String("type", dns.TypeToString[q.Qtype]),
+	)
 
 	if !strings.HasSuffix(qName, opt.Zone) {
 		m.Rcode = dns.RcodeRefused
@@ -135,30 +142,39 @@ func (opt *Opt) handleQuery(m *dns.Msg, r *dns.Msg) {
 	m.Answer = append(m.Answer, a)
 }
 
-func (opt *Opt) handleUpdates(m *dns.Msg, r *dns.Msg) {
+func (opt *Opt) handleUpdates(m *dns.Msg, r *dns.Msg, logger *slog.Logger) {
 	if len(r.Question) != 1 {
 		m.Rcode = dns.RcodeRefused
 		return
 	}
 
-	q := r.Question[0]
 	// nsは複数個ある
 	for _, rr := range r.Ns {
-		rcode, err := opt.updateRecord(rr, &q)
+		logger.Info(
+			"updateRequest",
+			slog.String("qname", rr.Header().Name),
+			slog.String("class", dns.ClassToString[rr.Header().Class]),
+			slog.String("type", dns.TypeToString[rr.Header().Rrtype]),
+		)
+		rcode, err := opt.updateRecord(rr)
 		if err != nil {
-			log.Printf("failed to update record :%v", err)
+			logger.Error(
+				"updateRequest failed",
+				slog.String("qname", rr.Header().Name),
+				slog.String("class", dns.ClassToString[rr.Header().Class]),
+				slog.String("type", dns.TypeToString[rr.Header().Rrtype]),
+				"err", err,
+			)
 			m.Rcode = rcode
 		}
 	}
 }
 
-func (opt *Opt) updateRecord(r dns.RR, q *dns.Question) (int, error) {
+func (opt *Opt) updateRecord(r dns.RR) (int, error) {
 	txt, ok := r.(*dns.TXT)
 	if !ok {
 		return dns.RcodeRefused, fmt.Errorf("not txt rr")
 	}
-
-	log.Printf("update request to %s class:%s", r.Header().Name, dns.ClassToString[r.Header().Class])
 
 	qName := strings.ToLower(r.Header().Name)
 
@@ -169,7 +185,7 @@ func (opt *Opt) updateRecord(r dns.RR, q *dns.Question) (int, error) {
 	if r.Header().Class == dns.ClassINET {
 		// add new
 		if err := opt.cache.Add(qName, txt.Txt, cache.DefaultExpiration); err != nil {
-			return dns.RcodeServerFailure, fmt.Errorf("failed to addRecord key:%s value:%v error:%v", qName, txt.Txt, err)
+			return dns.RcodeServerFailure, err
 		}
 	} else {
 		// remove
@@ -179,42 +195,63 @@ func (opt *Opt) updateRecord(r dns.RR, q *dns.Question) (int, error) {
 	return dns.RcodeSuccess, nil
 }
 
+func (opt *Opt) validateTsig(w dns.ResponseWriter, r *dns.Msg) error {
+	if !opt.tsgiEnabled() {
+		return nil
+	}
+	if r.IsTsig() == nil {
+		return fmt.Errorf("tsig requried")
+	}
+	if err := w.TsigStatus(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (opt *Opt) setTsig(w dns.ResponseWriter, r *dns.Msg, m *dns.Msg) error {
+	if !opt.tsgiEnabled() {
+		return nil
+	}
+	if r.IsTsig() == nil {
+		return nil
+	}
+	if err := w.TsigStatus(); err != nil {
+		return err
+	}
+	m.SetTsig(
+		r.Extra[len(r.Extra)-1].(*dns.TSIG).Hdr.Name,
+		dns.HmacSHA256,
+		300,
+		time.Now().Unix(),
+	)
+	return nil
+}
+
 func (opt *Opt) handleRequest(w dns.ResponseWriter, r *dns.Msg) {
 	m := new(dns.Msg)
 	m.SetReply(r)
 	m.Compress = true
 	m.Authoritative = true
 
+	logger := opt.logger.With(
+		slog.String("remote_addr", w.RemoteAddr().String()),
+		slog.String("opcode", dns.OpcodeToString[r.Opcode]),
+	)
+
 	switch r.Opcode {
 	case dns.OpcodeQuery:
-		opt.handleQuery(m, r)
+		opt.handleQuery(m, r, logger)
 	case dns.OpcodeUpdate:
-		if opt.tsgiEnabled() {
-			if r.IsTsig() == nil {
-				log.Printf("tsig required")
-				m.Rcode = dns.RcodeRefused
-			}
-			if err := w.TsigStatus(); err != nil {
-				log.Printf("tsig status: %v", err)
-				m.Rcode = dns.RcodeRefused
-			}
-		}
-		if m.Rcode != dns.RcodeRefused {
-			opt.handleUpdates(m, r)
+		if err := opt.validateTsig(w, r); err != nil {
+			logger.Warn("validateTsig", "err", err)
+			m.Rcode = dns.RcodeRefused
+		} else {
+			opt.handleUpdates(m, r, logger)
 		}
 	}
 
-	if opt.tsgiEnabled() && r.IsTsig() != nil {
-		if err := w.TsigStatus(); err != nil {
-			log.Printf("isTsigStatus: %+v", err)
-		} else {
-			m.SetTsig(
-				r.Extra[len(r.Extra)-1].(*dns.TSIG).Hdr.Name,
-				dns.HmacSHA256,
-				300,
-				time.Now().Unix(),
-			)
-		}
+	if err := opt.setTsig(w, r, m); err != nil {
+		logger.Warn("setTsig", "err", err)
 	}
 
 	w.WriteMsg(m)
@@ -270,6 +307,9 @@ Compiler: %s %s
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(StatusCodeWARNING)
 	}
+
+	opt.logger = slog.New(slog.NewJSONHandler(os.Stdout, nil))
+
 	if !strings.HasSuffix(opt.Zone, ".") {
 		opt.Zone = opt.Zone + "."
 	}
@@ -281,7 +321,7 @@ Compiler: %s %s
 		opt.Secret = strings.Split(secret, ":")
 	}
 	if len(opt.KeyName) != len(opt.Secret) {
-		log.Printf("length of keyname and secret not match")
+		opt.logger.Warn("length of keyname and secret not match")
 		os.Exit(StatusCodeWARNING)
 	}
 
@@ -294,7 +334,7 @@ Compiler: %s %s
 
 	opt.nsAddr = net.ParseIP(opt.NSAddr)
 	if opt.nsAddr == nil {
-		log.Printf("failed to parse ns-addr")
+		opt.logger.Warn("failed to parse ns-addr")
 		os.Exit(StatusCodeWARNING)
 	}
 
@@ -337,6 +377,6 @@ Compiler: %s %s
 		})
 	}
 	if err := eg.Wait(); err != nil {
-		log.Printf("%+v", err)
+		opt.logger.Warn("serve/shutdown", "err", err)
 	}
 }
