@@ -22,9 +22,11 @@ jobs:
           go-version: "1.21"
 
       - name: test
-        run: make check
+        run: |
+          make check
+          make
 
-      - name: test
+      - name: test with dig
         run: prove -r t
 
       - name: Snapshot GoReleaser
