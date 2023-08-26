@@ -24,6 +24,9 @@ jobs:
       - name: test
         run: make check
 
+      - name: test
+        run: prove -r t
+
       - name: Snapshot GoReleaser
         uses: goreleaser/goreleaser-action@v4
         with:
