@@ -12,6 +12,10 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Instal deps
+        run: |
+          sudo apt install -y dnsutils libfile-which-perl libtest-tcp-perl
+
       - name: Setup Go
         uses: actions/setup-go@v2
         with:
