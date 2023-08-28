@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net"
 	"os"
 	"os/signal"
@@ -14,7 +15,6 @@ import (
 	"github.com/jessevdk/go-flags"
 	"github.com/miekg/dns"
 	"github.com/patrickmn/go-cache"
-	"golang.org/x/exp/slog"
 	"golang.org/x/sync/errgroup"
 )
 
