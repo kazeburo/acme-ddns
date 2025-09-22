@@ -18,8 +18,3 @@ check:
 
 clean:
 	rm -rf acme-ddns
-
-tag:
-	git tag v${VERSION}
-	git push origin v${VERSION}
-	git push origin main
