@@ -1,5 +1,11 @@
 # Changelog
 
+## [v0.0.13](https://github.com/kazeburo/acme-ddns/compare/v0.0.12...v0.0.13) - 2026-07-04
+
+- Add files via upload by @kazeburo in https://github.com/kazeburo/acme-ddns/pull/6
+- go: bump the dependencies group with 7 updates by @dependabot[bot] in https://github.com/kazeburo/acme-ddns/pull/8
+- ci: bump the dependencies group with 4 updates by @dependabot[bot] in https://github.com/kazeburo/acme-ddns/pull/9
+
 ## [v0.0.12](https://github.com/kazeburo/acme-ddns/compare/v0.0.11...v0.0.12) - 2025-09-22
 - Use tagpr by @kazeburo in https://github.com/kazeburo/acme-ddns/pull/3
 
