@@ -51,6 +51,20 @@ func TestNewDDNSMissingRequiredOptions(t *testing.T) {
 	}
 }
 
+// test NewDDNS with NSName already fully-qualified
+func TestNewDDNSNSNameAlreadyQualified(t *testing.T) {
+	ddns, err := New(
+		Zone("example.com"),
+		NSName("ns.example.com."),
+	)
+	if err != nil {
+		t.Fatalf("NewDDNS failed: %v", err)
+	}
+	if ddns.NSName != "ns.example.com." {
+		t.Errorf("NSName mismatch: got %s, want %s", ddns.NSName, "ns.example.com.")
+	}
+}
+
 // test tsigEnabled method
 func TestTsigEnabled(t *testing.T) {
 	ddns := &DDNS{

@@ -86,7 +86,7 @@ Compiler: %s %s
 		os.Exit(StatusCodeWARNING)
 	}
 
-	cache := cache.New(opt.Expiration, 1*time.Minute)
+	ddnsCache := cache.New(opt.Expiration, 1*time.Minute)
 
 	handler, err := ddns.New(
 		ddns.TsigSecretMap(tsigSecretMap),
@@ -94,7 +94,7 @@ Compiler: %s %s
 		ddns.NSName(opt.NSName),
 		ddns.NSAddr(nsAddr),
 		ddns.TTL(opt.TTL),
-		ddns.Cache(cache),
+		ddns.Cache(ddnsCache),
 		ddns.Logger(logger),
 	)
 	if err != nil {

@@ -87,10 +87,10 @@ func New(ops ...DDNSOption) (*DDNS, error) {
 	if !strings.HasSuffix(ddns.Zone, ".") {
 		ddns.Zone = ddns.Zone + "."
 	}
-	if !strings.HasPrefix(ddns.NSName, ".") {
+	if !strings.HasSuffix(ddns.NSName, ".") {
 		ddns.NSName = ddns.NSName + "."
 	}
-	if !strings.HasPrefix(ddns.NSName, "."+ddns.Zone) {
+	if !strings.HasSuffix(ddns.NSName, ddns.Zone) {
 		ddns.NSName = ddns.NSName + ddns.Zone
 	}
 	if ddns.TsigSecretMap == nil {
@@ -100,7 +100,7 @@ func New(ops ...DDNSOption) (*DDNS, error) {
 		ddns.Cache = cache.New(DefaultExpiration, 1*time.Minute)
 	}
 	if ddns.Logger == nil {
-		ddns.Logger = slog.New(slog.NewJSONHandler(nil, nil))
+		ddns.Logger = slog.Default()
 	}
 	return ddns, nil
 }
@@ -263,7 +263,7 @@ func (ddns *DDNS) validateTsig(w dns.ResponseWriter, r *dns.Msg) error {
 		return nil
 	}
 	if r.IsTsig() == nil {
-		return fmt.Errorf("tsig requried")
+		return fmt.Errorf("tsig required")
 	}
 	if err := w.TsigStatus(); err != nil {
 		return err
