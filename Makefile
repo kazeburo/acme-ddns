@@ -4,10 +4,10 @@ all: acme-ddns
 
 .PHONY: acme-ddns
 
-acme-ddns: cmd/acme-ddns/main.go
+acme-ddns: cmd/acme-ddns/main.go ddns/*.go
 	go build $(LDFLAGS) -o acme-ddns cmd/acme-ddns/main.go
 
-linux: cmd/acme-ddns/main.go
+linux: cmd/acme-ddns/main.go ddns/*.go
 	GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o acme-ddns cmd/acme-ddns/main.go
 
 fmt:
