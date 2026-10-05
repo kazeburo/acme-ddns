@@ -1,5 +1,11 @@
 # Changelog
 
+## [v0.0.15](https://github.com/kazeburo/acme-ddns/compare/v0.0.14...v0.0.15) - 2026-10-04
+
+- go: bump the dependencies group with 5 updates by @dependabot[bot] in https://github.com/kazeburo/acme-ddns/pull/12
+- ci: bump the dependencies group with 3 updates by @dependabot[bot] in https://github.com/kazeburo/acme-ddns/pull/15
+- go: bump the dependencies group across 1 directory with 4 updates by @dependabot[bot] in https://github.com/kazeburo/acme-ddns/pull/16
+
 ## [v0.0.14](https://github.com/kazeburo/acme-ddns/compare/v0.0.13...v0.0.14) - 2026-07-05
 
 - Separate code and add tests by @kazeburo in https://github.com/kazeburo/acme-ddns/pull/10
