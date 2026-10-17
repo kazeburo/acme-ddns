@@ -7,7 +7,7 @@ require github.com/miekg/dns v1.1.73
 require (
 	github.com/jessevdk/go-flags v1.6.1
 	github.com/patrickmn/go-cache v2.1.0+incompatible
-	golang.org/x/net v0.59.0 // indirect
+	golang.org/x/net v0.61.0 // indirect
 	golang.org/x/sync v0.24.0
-	golang.org/x/sys v0.48.0 // indirect
+	golang.org/x/sys v0.49.0 // indirect
 )
