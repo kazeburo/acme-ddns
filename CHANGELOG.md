@@ -1,5 +1,14 @@
 # Changelog
 
+## [v0.0.16](https://github.com/kazeburo/acme-ddns/compare/v0.0.15...v0.0.16) - 2026-10-31
+
+- ci: bump Songmu/tagpr from 1.20.1 to 1.21.1 in the dependencies group by @dependabot[bot] in https://github.com/kazeburo/acme-ddns/pull/18
+- go: bump the dependencies group with 3 updates by @dependabot[bot] in https://github.com/kazeburo/acme-ddns/pull/17
+- ci: bump Songmu/tagpr from 1.21.1 to 1.21.2 in the dependencies group by @dependabot[bot] in https://github.com/kazeburo/acme-ddns/pull/21
+- go: bump the dependencies group with 2 updates by @dependabot[bot] in https://github.com/kazeburo/acme-ddns/pull/20
+- ci: bump the dependencies group with 2 updates by @dependabot[bot] in https://github.com/kazeburo/acme-ddns/pull/22
+- ci: bump Songmu/tagpr from 1.21.3 to 1.21.4 in the dependencies group by @dependabot[bot] in https://github.com/kazeburo/acme-ddns/pull/23
+
 ## [v0.0.15](https://github.com/kazeburo/acme-ddns/compare/v0.0.14...v0.0.15) - 2026-10-04
 
 - go: bump the dependencies group with 5 updates by @dependabot[bot] in https://github.com/kazeburo/acme-ddns/pull/12
